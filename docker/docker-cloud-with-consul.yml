@@ -1,0 +1,120 @@
+version: '3.7'
+
+services:
+  consul:
+    image: consul
+    command: consul agent -server -dev -client=0.0.0.0 -ui -bootstrap -log-level warn
+    ports:
+      - "8400:8400"
+      - "8500:8500"
+      - "8600:53/udp"
+    networks:
+      - bakend_network
+
+  network:
+    image: traefik:v2.1
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik_network"
+        - "traefik.http.routers.traefik-server.service=traefik-server"
+        - "traefik.http.routers.traefik-server.rule=Host(`traefik.exlinetr.com`)&&PathPrefix(`/dashboard`)"
+        - "traefik.http.routers.registery_store.entrypoints=web"
+        - "traefik.http.services.traefik-server.loadbalancer.server.port=8080"
+        - "traefik.http.services.traefik-server.loadbalancer.server.scheme=http"
+      update_config:
+        parallelism: 1
+        delay: 10s
+    command:
+      - "--log.level=DEBUG"
+      - "--api=true"
+      - "--api.debug=true"
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--providers.consulcatalog=true"
+      - "--providers.consulcatalog.refreshInterval=30s"
+      - "--providers.consulcatalog.prefix=traefik"
+      - "--providers.consulcatalog.endpoint.address=http://data_storage:8500"
+      - "--providers.consulcatalog.exposedByDefault=false"
+      - "--providers.consulcatalog.endpoint.datacenter=contabo"
+    ports:
+      - 8070:80
+      - 8050:8080
+    networks:
+      - bakend_network
+      - traefik_network
+    depends_on:
+      - consul
+
+  registrator:
+    image: gliderlabs/registrator:master
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+    depends_on:
+      - consul
+    networks:
+      - bakend_network
+    command: -internal consul://consul:8500
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock
+
+  # register:
+  #   image: traefik:v2.1
+  #   deploy:
+  #     mode: global
+  #     placement:
+  #       constraints:
+  #         - node.role == manager
+  #     restart_policy:
+  #       condition: on-failure
+  #     update_config:
+  #       parallelism: 1
+  #       delay: 10s
+  #   command:
+  #     - "--api=false"
+  #     - "--api.debug=true"
+  #     - "--api.insecure=true"
+  #     - "--api.dashboard=false"
+  #     - "--providers.consulcatalog=true"
+  #     - "--providers.consulcatalog.refreshInterval=30s"
+  #     - "--providers.consulcatalog.prefix=traefik"
+  #     - "--providers.consulcatalog.endpoint.address=http://data_storage:8500"
+  #     - "--providers.consulcatalog.exposedByDefault=false"
+  #     - "--providers.consulcatalog.endpoint.datacenter=contabo"
+  #     - "--providers.docker=true"
+  #     - "--providers.docker.swarmmode=true"
+  #     - "--providers.docker.network=traefik_network"
+  #     - "--providers.docker.watch=true"
+  #     - "--providers.docker.exposedbydefault=false"
+  #     - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+  #   depends_on:
+  #     - data_storage
+  #   networks:
+  #     - bakend_network
+  #     - traefik_network
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  consul-server-data:
+    driver: local
+      
+networks:
+  bakend_network:
+  traefik_network:
+    driver: overlay
+    attachable: true
+    external: true
