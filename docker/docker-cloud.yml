@@ -1,6 +1,33 @@
 version: '3.7'
-
 services:
+  zipkin:
+    image: openzipkin/zipkin:latest
+    restart: unless-stopped
+    deploy:
+      # mode: global
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 0
+        window: 120s
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik_network"
+        - "traefik.http.routers.zipkin.service=zipkin"
+        - "traefik.http.routers.zipkin.entrypoints=web"
+        - "traefik.http.routers.zipkin.rule=Host(`zipkin.exlinetr.com`)"
+        - "traefik.http.routers.zipkin.middlewares=zipkin"
+        - "traefik.http.services.zipkin.loadbalancer.server.port=9411"
+        - "traefik.http.services.zipkin.loadbalancer.server.scheme=http"
+        - "traefik.http.middlewares.zipkin.basicauth.users=furkaandogan:{SHA}90St/4Twu+l5Y9zfJQNDprYI+Ek="
+    networks:
+      - exlinetr_infrustructure_logging_network
+      - traefik_network
+
   server:
     image: traefik
     restart: unless-stopped
@@ -16,18 +43,15 @@ services:
       restart_policy:
         condition: on-failure
         delay: 5s
-        max_attempts: 3
+        max_attempts: 0
         window: 120s
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik_network"
         - "traefik.http.routers.traefik-dahsboard.rule=Host(`traefik.exlinetr.com`)"
         - "traefik.http.routers.traefik-dahsboard.service=api@internal"
-        # - "traefik.http.routers.traefik-api.rule=Host(`traefik.exlinetr.com`) && PathPrefix(`/api`)"
-        # - "traefik.http.routers.traefik-api.service=api@internal"
         - "traefik.http.routers.traefik-api.middlewares=traefik-dahsboard"
         - "traefik.http.middlewares.traefik-dahsboard.basicauth.users=furkaandogan:{SHA}90St/4Twu+l5Y9zfJQNDprYI+Ek="
-        # # Dummy service for Swarm port detection. The port can be any valid integer value.
         - "traefik.http.services.dummy-svc.loadbalancer.server.port=9999"
     command:
       # - "--log.level=DEBUG"
@@ -35,8 +59,11 @@ services:
       - "--api.debug=true"
       - "--api.insecure=true"
       - "--api.dashboard=true"
+      - "--tracing.zipkin=true"
+      - "--tracing.zipkin.httpEndpoint=http://zipkin:9411/api/v2/spans"
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.fluentbit.address=:5170"
       - "--providers.docker=true"
       - "--providers.docker.swarmmode=true"
       - "--providers.docker.swarmModeRefreshSeconds=5s"
@@ -47,6 +74,8 @@ services:
       - "--providers.docker.endpoint=unix:///var/run/docker.sock"
     ports:
       - 8070:80
+      - 443:443
+      - 5170:5170
     networks:
       - traefik_network
     volumes:
@@ -56,4 +85,7 @@ networks:
   traefik_network:
     driver: overlay
     attachable: true
+    external: true
+  exlinetr_infrustructure_logging_network:
+    name: "exlinetr_infrustructure_logging_network"
     external: true
